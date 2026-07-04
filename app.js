@@ -16,6 +16,7 @@ const homeRoute = require('./routes/home');
 const cartRoute = require('./routes/cart');
 const userRoute = require('./routes/user');
 const authRoute = require('./routes/auth');
+const chatRoute = require('./routes/chat');
 
 //middleware
 app.use(cors());
@@ -35,6 +36,7 @@ app.use('/products', productRoute);
 app.use('/carts', cartRoute);
 app.use('/users', userRoute);
 app.use('/auth', authRoute);
+app.use('/chat', chatRoute);
 
 //mongoose
 mongoose.set('strictQuery', true);
