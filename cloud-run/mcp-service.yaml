@@ -1,0 +1,89 @@
+# Cloud Run deployment for the MCP server (mcp/http-server.js), so it has
+# its own public URL for Google Cloud Agent Studio to connect to.
+#
+# Why a separate service from cloud-run/service.yaml:
+# - Cloud Run only exposes ONE container per service to the internet (the
+#   ingress container). The main app is already that container in
+#   service.yaml, so the MCP server needs its own service/URL, not another
+#   sidecar in the same revision.
+# - Agent Studio's MCP connector only supports unauthenticated servers, so
+#   this service is deployed with public, unauthenticated ingress
+#   (--allow-unauthenticated equivalent: run.googleapis.com/ingress: all,
+#   no IAM invoker restriction). Don't reuse this pattern for anything that
+#   isn't fake demo data.
+# - Reuses the exact same container image as the main app (same Dockerfile,
+#   same package.json/deps) - just overrides the container's command to run
+#   the MCP HTTP server instead of the Express API.
+#
+# Mongo caveat (see docs/cloud-run-deploy.md and docs/agent-studio-setup.md
+# for the full explanation): this service gets its OWN db sidecar, separate
+# from the main app's. That means the MCP server's data and the main app's
+# /chat data are two independent, empty-by-default Mongo instances unless
+# you seed both, or move both services onto one shared, externally-reachable
+# Mongo (e.g. MongoDB Atlas).
+#
+# Deploy with:
+#   gcloud run services replace cloud-run/mcp-service.yaml --region <region>
+# Or use cloud-run/deploy.sh, which builds the image and deploys both
+# services in one go.
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: fake-store-mcp
+  annotations:
+    run.googleapis.com/launch-stage: BETA
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/container-dependencies: '{"mcp":["db"]}'
+    spec:
+      containers:
+        - name: mcp
+          image: REGION-docker.pkg.dev/PROJECT_ID/fake-store-api/app:latest
+          command: ["node", "mcp/http-server.js"]
+          ports:
+            - containerPort: 3333
+          env:
+            - name: MCP_PORT
+              value: "3333"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-url
+                  key: latest
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+
+        - name: db
+          image: mongo:7
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: root
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-password
+                  key: latest
+          volumeMounts:
+            - name: mongo-data
+              mountPath: /data/db
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          startupProbe:
+            tcpSocket:
+              port: 27017
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 15
+
+      volumes:
+        - name: mongo-data
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi
