@@ -1,0 +1,131 @@
+# Cloud Run multi-container (sidecar) deployment for fake-store-api.
+#
+# IMPORTANT — differences from docker-compose.yml:
+# - All containers in a Cloud Run revision share one network namespace and
+#   talk to each other over `localhost`, not by service/container name. That's
+#   why DB_HOST/DD_AGENT_HOST below are "localhost", while docker-compose.yml
+#   uses "db"/"datadog-agent".
+# - Cloud Run has no persistent disks. The `db` container's data directory is
+#   backed by an in-memory `emptyDir` volume: Mongo data does NOT survive
+#   instance restarts, revisions, or scale-to-zero. Acceptable here because
+#   this is a fake-data demo API — for anything real, use MongoDB Atlas or a
+#   separately hosted Mongo instance instead of this sidecar.
+# - Secrets are pulled from Secret Manager via secretKeyRef instead of plain
+#   env vars, since this file is committed to the repo.
+#
+# Deploy with:
+#   gcloud run services replace cloud-run/service.yaml --region <region>
+#
+# Prerequisites:
+#   gcloud secrets create jwt-secret --data-file=- <<< "<value>"
+#   gcloud secrets create db-password --data-file=- <<< "<value>"
+#   gcloud secrets create database-url --data-file=- <<< "mongodb://root:<db-password>@localhost:27017/fake_store?authSource=admin"
+#   gcloud secrets create dd-api-key --data-file=- <<< "<value>"
+#   gcloud secrets create anthropic-api-key --data-file=- <<< "<value>"
+#
+# Note: Cloud Run (Knative) does not reliably support one container env var
+# referencing another's value (e.g. embedding a secret-sourced DB_PASSWORD
+# inside a DATABASE_URL literal), so the full Mongo connection string is
+# stored as its own secret (`database-url`) rather than composed from parts.
+#   Build & push the app image to Artifact Registry, then replace the
+#   REGION-docker.pkg.dev/PROJECT/REPO/fake-store-api placeholder below.
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: fake-store-api
+  annotations:
+    run.googleapis.com/launch-stage: BETA
+spec:
+  template:
+    metadata:
+      annotations:
+        # Start db + datadog-agent before the app container.
+        run.googleapis.com/container-dependencies: '{"app":["db","datadog-agent"]}'
+    spec:
+      containers:
+        - name: app
+          image: REGION-docker.pkg.dev/PROJECT_ID/fake-store-api/app:latest
+          ports:
+            - containerPort: 8765
+          env:
+            - name: PORT
+              value: "8765"
+            - name: DD_AGENT_HOST
+              value: localhost
+            - name: DD_TRACE_AGENT_PORT
+              value: "8126"
+            - name: CLAUDE_MODEL
+              value: claude-haiku-4-5
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: database-url
+                  key: latest
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: jwt-secret
+                  key: latest
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: anthropic-api-key
+                  key: latest
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+
+        - name: db
+          image: mongo:7
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: root
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-password
+                  key: latest
+          volumeMounts:
+            - name: mongo-data
+              mountPath: /data/db
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          startupProbe:
+            tcpSocket:
+              port: 27017
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 15
+
+        - name: datadog-agent
+          image: gcr.io/datadoghq/agent:latest
+          env:
+            - name: DD_SITE
+              value: datadoghq.com
+            - name: DD_APM_ENABLED
+              value: "true"
+            - name: DD_APM_NON_LOCAL_TRAFFIC
+              value: "true"
+            # Cloud Run sidecars can't mount /var/run/docker.sock, /proc, or
+            # /sys/fs/cgroup like the docker-compose agent does, so host/
+            # container-level metrics collection is not available here —
+            # this sidecar is scoped to APM trace collection from the app.
+            - name: DD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: dd-api-key
+                  key: latest
+          resources:
+            limits:
+              cpu: "0.5"
+              memory: 256Mi
+
+      volumes:
+        - name: mongo-data
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi
