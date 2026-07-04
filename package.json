@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "test": "jest",
-    "start": "node server.js"
+    "start": "node server.js",
+    "mcp": "node mcp/server.js",
+    "mcp:http": "node mcp/http-server.js"
   },
   "author": "",
   "license": "ISC",

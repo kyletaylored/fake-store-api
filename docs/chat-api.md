@@ -90,10 +90,16 @@ Configured via `CLAUDE_MODEL` (default `claude-haiku-4-5`). Requires `ANTHROPIC_
 
 ## Standalone MCP server
 
-`mcp/server.js` exposes the same six tools over the Model Context Protocol (stdio transport), so any MCP-compatible client (Claude Desktop, another agent) can query this store's data directly without going through the chat endpoints:
+The same six tools (defined once in `mcp/tools.js`, registered once in `mcp/create-server.js`) are also exposed as a standalone MCP server, in two transport flavors:
 
-```
-node mcp/server.js
-```
+- **stdio** (`mcp/server.js`) - for local MCP clients (Claude Desktop, another agent) that spawn the server as a subprocess:
+  ```
+  node mcp/server.js
+  ```
+- **Streamable HTTP** (`mcp/http-server.js`) - for remote MCP clients that need a URL, e.g. Google Cloud Agent Studio. Listens on `MCP_PORT` (default `3333`) at `POST /mcp`:
+  ```
+  node mcp/http-server.js
+  ```
+  This endpoint is **intentionally unauthenticated** - Agent Studio's MCP connector only supports MCP servers with no auth of their own. See `docs/agent-studio-setup.md` for the multi-agent demo this is built for, and the security tradeoff of exposing it unauthenticated.
 
-It connects to the same `DATABASE_URL` as the main app.
+Both connect to the same `DATABASE_URL` as the main app.
