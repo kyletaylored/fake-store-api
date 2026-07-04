@@ -6,6 +6,31 @@ It's awesome for teaching purposes, sample codes, tests and etc.
 
 You can visit in detail docs in [FakeStoreAPI](https://fakestoreapi.com) for more information.
 
+## This fork: an AI customer support agent demo
+
+This fork of the original API is being used as the backing store for a demo: an
+AI-powered e-commerce customer support agent, built strictly on top of this
+project's own product/cart/user data (no external knowledge, no invented data).
+On top of the original API, this fork adds:
+
+- **Dependency security upgrade** - mongoose, express, jsonwebtoken, bcryptjs,
+  dotenv all bumped to latest majors (0 vulnerabilities, down from 14); real
+  bcrypt password hashing instead of plaintext; Node 24 LTS.
+- **Docker Compose + Google Cloud Run deployment**, with a Datadog Agent
+  sidecar for observability (`docker-compose.yml`, `cloud-run/service.yaml`).
+- **A minimal AI chat backend** (`POST /chat/conversations/:id/messages`)
+  backed by Claude, with tool access to this store's product/cart/user data.
+  See [`docs/chat-api.md`](docs/chat-api.md).
+- **An MCP server** (`mcp/`) exposing the same product/cart/user tools over
+  the Model Context Protocol - both a local stdio transport and a remote
+  Streamable HTTP transport, so any MCP-compatible client or agent platform
+  can query this store's data directly.
+- **A multi-agent support demo in Google Cloud's Agent Studio**: a generic
+  support agent that routes to specialist subagents (Products, Orders &
+  Billing, Account), each scoped to this store's real data via the MCP
+  server above. See [`docs/agent-studio-setup.md`](docs/agent-studio-setup.md)
+  for the exact agent configs and a click-by-click console walkthrough.
+
 ## Why?
 
 When I wanted to design a shopping website prototype and needed fake data, I had to
@@ -283,8 +308,21 @@ POST:
 
 - /auth/login
 
+## Chat and MCP
+
+- Chat API (Claude-backed, tool-use over this store's data): [`docs/chat-api.md`](docs/chat-api.md)
+- Multi-agent support demo in Agent Studio: [`docs/agent-studio-setup.md`](docs/agent-studio-setup.md)
+- Standalone MCP server (stdio for local clients, Streamable HTTP for remote ones like Agent Studio): `mcp/server.js` / `mcp/http-server.js`, both documented in `docs/chat-api.md`
+
 ## ToDo
 
+- Move the MCP server (and the main app, for this to matter) off the
+  Cloud Run Mongo sidecar onto a real externally-reachable Mongo, so the
+  Agent Studio demo and the chat endpoint see consistent data across
+  independently-deployed services (see the caveat in
+  [`docs/agent-studio-setup.md`](docs/agent-studio-setup.md))
+- Wire up `dd-trace` APM instrumentation now that the Datadog Agent sidecar
+  is reachable (`DD_AGENT_HOST`/`DD_TRACE_AGENT_PORT` are already set)
 - Add graphql support
 - Add pagination
 - Add another language support
