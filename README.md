@@ -16,8 +16,9 @@ On top of the original API, this fork adds:
 - **Dependency security upgrade** - mongoose, express, jsonwebtoken, bcryptjs,
   dotenv all bumped to latest majors (0 vulnerabilities, down from 14); real
   bcrypt password hashing instead of plaintext; Node 24 LTS.
-- **Docker Compose + Google Cloud Run deployment**, with a Datadog Agent
-  sidecar for observability (`docker-compose.yml`, `cloud-run/service.yaml`).
+- **Docker Compose + Google Cloud Run deployment** (two services from one
+  image - the main app and the MCP server below), with a Datadog Agent
+  sidecar for observability. See [`docs/cloud-run-deploy.md`](docs/cloud-run-deploy.md).
 - **A minimal AI chat backend** (`POST /chat/conversations/:id/messages`)
   backed by Claude, with tool access to this store's product/cart/user data.
   See [`docs/chat-api.md`](docs/chat-api.md).
@@ -313,14 +314,17 @@ POST:
 - Chat API (Claude-backed, tool-use over this store's data): [`docs/chat-api.md`](docs/chat-api.md)
 - Multi-agent support demo in Agent Studio: [`docs/agent-studio-setup.md`](docs/agent-studio-setup.md)
 - Standalone MCP server (stdio for local clients, Streamable HTTP for remote ones like Agent Studio): `mcp/server.js` / `mcp/http-server.js`, both documented in `docs/chat-api.md`
+- Deploying both to Cloud Run (two services from one image, plus why not to use a Cloud Build repo trigger for this yet): [`docs/cloud-run-deploy.md`](docs/cloud-run-deploy.md), run via `cloud-run/deploy.sh`
 
 ## ToDo
 
-- Move the MCP server (and the main app, for this to matter) off the
-  Cloud Run Mongo sidecar onto a real externally-reachable Mongo, so the
-  Agent Studio demo and the chat endpoint see consistent data across
-  independently-deployed services (see the caveat in
-  [`docs/agent-studio-setup.md`](docs/agent-studio-setup.md))
+- Move both Cloud Run services (`fake-store-api` and `fake-store-mcp`) off
+  their own separate Mongo sidecars onto one shared, externally-reachable
+  Mongo, so the Agent Studio demo and the chat endpoint see consistent data
+  (see the Mongo caveat in [`docs/cloud-run-deploy.md`](docs/cloud-run-deploy.md))
+- Set up a Cloud Build trigger with a custom `cloudbuild.yaml` for
+  automatic redeploy-on-push, once the demo is stable enough to want that
+  (see [`docs/cloud-run-deploy.md`](docs/cloud-run-deploy.md))
 - Wire up `dd-trace` APM instrumentation now that the Datadog Agent sidecar
   is reachable (`DD_AGENT_HOST`/`DD_TRACE_AGENT_PORT` are already set)
 - Add graphql support

@@ -4,21 +4,23 @@ A generic support agent that routes to specialized subagents (Products, Orders &
 
 ## Prerequisites
 
-1. **Deploy `mcp/http-server.js` somewhere Google can reach it over HTTPS.** Agent Studio's MCP connector only supports servers with **no authentication**, so this needs to be a public (or at least Google-reachable) unauthenticated endpoint. Cloud Run is the natural fit - it's the same image already built for the main app (`Dockerfile`), just override the container command to `node mcp/http-server.js` and the port to `$MCP_PORT`.
-2. **Point it at the same data as the main app.** The existing `cloud-run/service.yaml` runs Mongo as a sidecar *inside* the main app's own revision - that Mongo instance is only reachable via `localhost` from within that revision, not from a second, independent Cloud Run service. For this demo to show real (consistent) data across both the chat endpoint and the Agent Studio agents, the MCP server and the main app need to point at the **same externally-reachable Mongo** (e.g. MongoDB Atlas, or a Mongo instance on a VM/GKE with a real address) rather than each getting their own sidecar. This is a real architectural fork from the single-service sidecar setup - flagging it here rather than silently changing `cloud-run/service.yaml`; happy to do that migration as a separate step if you want to actually deploy this.
+1. **Deploy `mcp/http-server.js` somewhere Google can reach it over HTTPS.** Agent Studio's MCP connector only supports servers with **no authentication**, so this needs to be a public (or at least Google-reachable) unauthenticated endpoint. Run `PROJECT_ID=your-project ./cloud-run/deploy.sh` to build and deploy it (along with the main app) to Cloud Run - see [`docs/cloud-run-deploy.md`](cloud-run-deploy.md) for prerequisites and what that script actually does. It prints the MCP URL you need for step 3 below.
+2. **Data caveat**: the deployed MCP service gets its own empty Mongo (no seed script exists), separate from the main app's - see `docs/cloud-run-deploy.md`'s Mongo section for what that means and how to change it.
 3. For a quick local demo without Cloud Run, run `docker compose up mcp db` and tunnel port 3333 (e.g. `ngrok http 3333`) to get a temporary public URL for Agent Studio to hit.
 
 Verify the endpoint responds before wiring it into Agent Studio:
+
 ```
 curl -s -X POST http://<host>/mcp \
   -H "Content-Type: application/json" -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
 ```
+
 Should return all six tools: `list_products`, `get_product`, `list_carts`, `get_cart`, `list_users`, `get_user`.
 
 ## Important caveat: tool scoping is prompt-level, not a hard boundary
 
-Agent Studio attaches an MCP server as a whole - "your agent can use all tools in your connected MCP server." There's no connector-level way to give the Products subagent only `list_products`/`get_product` while hiding cart/user tools from it. The scoping below (each subagent only *using* its relevant tools) is enforced by instructions, not by permissions. Fine for a demo; not a substitute for real access control if this pattern is ever used with non-fake data.
+Agent Studio attaches an MCP server as a whole - "your agent can use all tools in your connected MCP server." There's no connector-level way to give the Products subagent only `list_products`/`get_product` while hiding cart/user tools from it. The scoping below (each subagent only _using_ its relevant tools) is enforced by instructions, not by permissions. Fine for a demo; not a substitute for real access control if this pattern is ever used with non-fake data.
 
 ## Agent 1: Support Coordinator (root agent)
 
@@ -31,22 +33,17 @@ Agent Studio attaches an MCP server as a whole - "your agent can use all tools i
 **MCP server:** not connected directly - it only routes, it doesn't call store tools itself.
 
 **Instructions:**
+
 ```
-You are the front door for customer support at a demo e-commerce store. You do not
-answer product, order, or account questions yourself - your only job is to
-understand what the customer needs and route them to the right specialist subagent:
+You are the front door for customer support at a demo e-commerce store. You do not answer product, order, or account questions yourself - your only job is to understand what the customer needs and route them to the right specialist subagent:
 
 - Products: questions about what's for sale, prices, descriptions, categories.
 - Orders & Billing: questions about a specific cart/order - contents, totals.
 - Account: questions about a specific user's account details.
 
-If the request is ambiguous, ask one short clarifying question before routing.
-If the request doesn't fit any of the three specialists (e.g. shipping, returns,
-general chit-chat unrelated to this store), say plainly that you don't have
-information on that - do not guess or make up an answer.
+If the request is ambiguous, ask one short clarifying question before routing. If the request doesn't fit any of the three specialists (e.g. shipping, returns, general chit-chat unrelated to this store), say plainly that you don't have information on that - do not guess or make up an answer.
 
-This is a demo store with fake/sample data. Never invent data that a subagent
-didn't actually return.
+This is a demo store with fake/sample data. Never invent data that a subagent didn't actually return.
 ```
 
 ## Agent 2: Products
@@ -60,13 +57,9 @@ didn't actually return.
 **MCP server:** the deployed `mcp/http-server.js` endpoint.
 
 **Instructions:**
+
 ```
-You answer questions about the store's product catalog only. Use the
-list_products and get_product tools to look up real data - never state a
-price, description, or category you didn't get from a tool call. If asked
-about anything outside the product catalog (orders, accounts, shipping),
-say that's outside what you handle and let the coordinator route it
-elsewhere instead of guessing.
+You answer questions about the store's product catalog only. Use the list_products and get_product tools to look up real data - never state a price, description, or category you didn't get from a tool call. If asked about anything outside the product catalog (orders, accounts, shipping), say that's outside what you handle and let the coordinator route it elsewhere instead of guessing.
 ```
 
 ## Agent 3: Orders & Billing
@@ -80,13 +73,9 @@ elsewhere instead of guessing.
 **MCP server:** the deployed `mcp/http-server.js` endpoint.
 
 **Instructions:**
+
 ```
-You answer questions about shopping carts (orders) only, using the
-list_carts and get_cart tools. Only report what a tool call actually
-returned - never invent cart contents, quantities, or totals. If the
-customer doesn't give a cart/order id, ask for one. If asked about
-products in general (not tied to a specific cart) or account details,
-say that's outside what you handle.
+You answer questions about shopping carts (orders) only, using the list_carts and get_cart tools. Only report what a tool call actually returned - never invent cart contents, quantities, or totals. If the customer doesn't give a cart/order id, ask for one. If asked about products in general (not tied to a specific cart) or account details, say that's outside what you handle.
 ```
 
 ## Agent 4: Account
@@ -100,13 +89,9 @@ say that's outside what you handle.
 **MCP server:** the deployed `mcp/http-server.js` endpoint.
 
 **Instructions:**
+
 ```
-You answer questions about user accounts only, using the list_users and
-get_user tools. These tools never return a password field - if asked for
-one, say account credentials aren't something you can share, don't
-speculate. Only report what a tool call actually returned. If the
-customer doesn't give a user id, ask for one. If asked about products or
-carts, say that's outside what you handle.
+You answer questions about user accounts only, using the list_users and get_user tools. These tools never return a password field - if asked for one, say account credentials aren't something you can share, don't speculate. Only report what a tool call actually returned. If the customer doesn't give a user id, ask for one. If asked about products or carts, say that's outside what you handle.
 ```
 
 ## Step-by-step console walkthrough
@@ -153,7 +138,7 @@ Do this **on each of the three specialist subagents individually** - not on the 
 ### 4. Test it
 
 1. Use whatever "Preview" / "Test agent" chat panel Agent Studio provides, starting a conversation against the **Support Coordinator** (not a subagent directly) so you're exercising the full routing path.
-2. Try one prompt per specialist and confirm both the routing *and* the tool call happened:
+2. Try one prompt per specialist and confirm both the routing _and_ the tool call happened:
    - `"What products do you have under $20?"` → should route to Products, and the answer should reflect real catalog data (or say there's no data, if the store is empty - see the note on seed data below).
    - `"What's in cart 3?"` → should route to Orders & Billing and call `get_cart`.
    - `"What's user 2's email?"` → should route to Account and call `get_user`.
