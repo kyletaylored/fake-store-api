@@ -1,3 +1,4 @@
+const bcrypt = require('bcryptjs');
 const User = require('../model/user');
 
 module.exports.getAllUser = (req, res) => {
@@ -42,7 +43,7 @@ module.exports.addUser = async (req, res) => {
 				id: userCount + 1,
 				email: req.body.email,
 				username: req.body.username,
-				password: req.body.password,
+				password: bcrypt.hashSync(req.body.password, 10),
 				name: {
 					firstname: req.body.firstname,
 					lastname: req.body.lastname,
