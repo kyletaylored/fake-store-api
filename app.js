@@ -4,7 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const dotenv = require('dotenv');
 const dotenvExpand = require('dotenv-expand');
-const myEnv = dotenv.config();
+const myEnv = dotenv.config({ quiet: true });
 dotenvExpand.expand(myEnv);
 
 //app
@@ -37,9 +37,8 @@ app.use('/users', userRoute);
 app.use('/auth', authRoute);
 
 //mongoose
-mongoose.set('useFindAndModify', false);
-mongoose.set('useUnifiedTopology', true);
-mongoose.connect(process.env.DATABASE_URL, { useNewUrlParser: true }).catch((err) => {
+mongoose.set('strictQuery', true);
+mongoose.connect(process.env.DATABASE_URL).catch((err) => {
 	console.log(err);
 });
 
