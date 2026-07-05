@@ -7,6 +7,7 @@ const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/ser
 const { createMcpExpressApp } = require('@modelcontextprotocol/sdk/server/express.js');
 
 const { createMcpServer } = require('./create-server');
+const { runSeed } = require('../seed');
 
 // Agent Studio only supports MCP servers with no auth of their own, so this
 // endpoint is intentionally unauthenticated - see docs/chat-api.md for the
@@ -19,6 +20,19 @@ const allowedHosts = process.env.MCP_ALLOWED_HOSTS
 const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts });
 
 app.get('/healthz', (req, res) => res.status(200).send('ok'));
+
+// Populates this service's own Mongo with demo data - see the Mongo caveat
+// in docs/cloud-run-deploy.md (this is a separate database from the main
+// app's, since each Cloud Run service has its own sidecar).
+app.post('/seed', async (req, res) => {
+	try {
+		const counts = await runSeed();
+		res.json({ status: 'ok', ...counts });
+	} catch (err) {
+		console.error(err);
+		res.status(500).json({ status: 'error', message: 'could not seed database' });
+	}
+});
 
 app.post('/mcp', async (req, res) => {
 	const server = createMcpServer();

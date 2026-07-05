@@ -84,3 +84,10 @@ Both services get their **own, separate, ephemeral** `db` sidecar (per `docs/age
 
 - Seed test data into `fake-store-mcp`'s Mongo for the Agent Studio demo to have anything to show (`get_cart`/`get_product`/`get_user` will return empty otherwise).
 - If you also want the `/chat` endpoint on `fake-store-api` to see the *same* data as Agent Studio's agents, that requires moving both services onto one shared, externally-reachable Mongo (MongoDB Atlas is the lowest-effort option) instead of each having its own sidecar - a real architecture change, not something this script does for you.
+
+**`POST /seed`** is available on both services (`fake-store-api` and `fake-store-mcp`) precisely because of the above - it clears and repopulates that service's *own* Mongo with a small fixed set of demo products/users/carts (`seed/data.js`), so you can seed either or both independently:
+```
+curl -X POST <fake-store-api-url>/seed
+curl -X POST <fake-store-mcp-url>/seed
+```
+No auth on this endpoint - acceptable for fake demo data, but note it destructively resets the collections every time it's called (`deleteMany` then re-insert), and don't reuse this pattern for anything with real data.

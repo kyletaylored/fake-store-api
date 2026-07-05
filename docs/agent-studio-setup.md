@@ -145,4 +145,4 @@ Do this **on each of the three specialist subagents individually** - not on the 
    - `"What's your return policy?"` → nothing in scope should answer this; confirm the coordinator says it doesn't have that information rather than guessing.
 3. If a subagent answers confidently without calling a tool, check its instructions pasted correctly - that's the "never invent data" line doing its job when it's working.
 
-**Note on data**: this store has no seed script, so a freshly-provisioned Mongo will return empty results for everything. Insert a few test products/carts/users directly (e.g. via `mongosh` or a quick script against the same `DATABASE_URL`) before demoing, or the correct-but-underwhelming answer will always be "there's no data for that."
+**Note on data**: a freshly-provisioned Mongo returns empty results for everything. Before demoing, seed it: `curl -X POST <mcp-service-url>/seed` (see `docs/cloud-run-deploy.md`) populates 5 products, 3 users, and 3 carts with fixed ids (cart 1-3, user 1-3) - handy for the exact example prompts above.
