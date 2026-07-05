@@ -11,21 +11,24 @@ Two Cloud Run services get deployed from the same container image:
 
 It's a Knative-style declarative manifest - the Cloud Run equivalent of `docker-compose.yml`, but for one Cloud Run service and its sidecar containers. `gcloud run services replace <file>` reads it and creates or updates the service to match exactly what's in the file (as opposed to `gcloud run deploy`, which is a simpler command-line-flags-only path that doesn't support multi-container sidecars). Both `service.yaml` and `mcp-service.yaml` use the same container image - built once from the repo's `Dockerfile` - and just override the container's `command` to pick which process runs (the Express app vs. `mcp/http-server.js`).
 
-## Recommended: deploy manually for now, not via a Cloud Build repo trigger
+## Two ways to run the same deploy
 
-You asked specifically about connecting the repo through Cloud Build's GitHub trigger (the "continuously deploy from a repository" option Cloud Run's console offers when creating a service). **Don't use that for this project, at least not yet:**
+Both do the same thing (build the image once, apply both service YAMLs, grant public access to both) - pick based on where you'd rather run it:
 
-- That one-click flow is built around `gcloud run deploy` with a single container - it infers a Dockerfile build and deploys straight to a service, with no path to apply a multi-container Knative YAML like ours. Wiring it up for two sidecar-based services would mean fighting the flow, not using it.
-- The actual "run this YAML" step (`gcloud run services replace`) is what we need, and Cloud Build triggers run whatever's in a `cloudbuild.yaml` you author - a repo connection just gives you automatic *triggering*, it doesn't change what commands actually run.
+| | [`cloud-run/deploy.sh`](../cloud-run/deploy.sh) | [`cloudbuild.yaml`](../cloudbuild.yaml) |
+|---|---|---|
+| Runs from | Your local shell (needs `gcloud` installed/authenticated locally) | Cloud Build, submitted from anywhere `gcloud` is available |
+| Checks secrets exist first | Yes, fails with clear instructions if any are missing | No - assumes prerequisites are already met (see below) |
+| Reusable as a Cloud Build trigger later | No | Yes - a trigger just points at this same file |
 
-**Recommendation:** deploy manually via [`cloud-run/deploy.sh`](../cloud-run/deploy.sh) while this is a demo you're actively iterating on. It builds the image once (via a one-off `gcloud builds submit` - this uses Cloud Build too, just without a standing trigger) and applies both service YAMLs. This gets you redeploying in one command without any GitHub App connection, trigger config, or Cloud Build service account IAM to set up first.
-
-**If you want automatic redeploy-on-push later:** set up a Cloud Build trigger connected to the repo, but give it a custom `cloudbuild.yaml` with explicit steps (`gcloud builds submit` equivalent build step, then two `gcloud run services replace` steps) instead of relying on the trigger's auto-detected single-container deploy. That's a reasonable next step once the demo is stable - not needed to get this working today.
+You asked specifically about connecting the repo through Cloud Build's GitHub trigger (the "continuously deploy from a repository" option Cloud Run's console offers when creating a service). **Don't use that one-click flow for this project:** it's built around `gcloud run deploy` with a single container - it infers a Dockerfile build and deploys straight to a service, with no path to apply a multi-container Knative YAML like ours. `cloudbuild.yaml` is the right building block for a trigger *later* - a trigger just needs to be configured to run this file instead of relying on the console's auto-detected single-container deploy. Not needed to get this working today; run it manually with `gcloud builds submit --config=cloudbuild.yaml` and add the trigger once the demo is stable.
 
 ## Prerequisites
 
-1. `gcloud auth login` and `gcloud config set project <your-project>` (or just pass `PROJECT_ID=` to the script - it doesn't rely on the active gcloud config).
-2. Create the secrets referenced by both manifests (the script checks these exist and tells you which are missing rather than guessing values for you):
+1. `gcloud auth login` and `gcloud config set project <your-project>` (`deploy.sh` also accepts `PROJECT_ID=` directly, without relying on the active gcloud config).
+2. Enable the required APIs: `run`, `artifactregistry`, `secretmanager`, `cloudbuild` (`deploy.sh` does this for you; running `cloudbuild.yaml` directly assumes it's already done).
+3. Create an Artifact Registry Docker repo named `fake-store-api` in your chosen region (`deploy.sh` creates it if missing; `cloudbuild.yaml` assumes it exists).
+4. Create the secrets referenced by both manifests - neither path guesses values for you:
    ```
    gcloud secrets create jwt-secret       --data-file=- <<< "<a real random secret>"
    gcloud secrets create db-password      --data-file=- <<< "<a real password>"
@@ -33,15 +36,24 @@ You asked specifically about connecting the repo through Cloud Build's GitHub tr
    gcloud secrets create dd-api-key       --data-file=- <<< "<your Datadog API key>"
    gcloud secrets create anthropic-api-key --data-file=- <<< "<your Anthropic API key>"
    ```
-3. Your account needs permission to enable APIs, push to Artifact Registry, run Cloud Build, deploy Cloud Run services, and manage IAM policy bindings on them - Owner/Editor on the project covers all of this; ask whoever administers the project if you're on a more restricted role.
+5. IAM - who needs what depends on which path you use:
+   - **`deploy.sh`** (runs as you, locally): your own account needs to enable APIs, push to Artifact Registry, run Cloud Build, deploy Cloud Run services, and manage IAM policy bindings on them - Owner/Editor on the project covers all of this.
+   - **`cloudbuild.yaml`** (runs as Cloud Build's own service account, `PROJECT_NUMBER@cloudbuild.gserviceaccount.com`): that service account needs `roles/run.admin`, `roles/iam.serviceAccountUser`, and `roles/artifactregistry.writer`. Your own account just needs permission to submit the build (`roles/cloudbuild.builds.editor` or broader).
+   - Separately, at runtime, each Cloud Run service's own service account needs `roles/secretmanager.secretAccessor` on the secrets it references - that's a Cloud Run concern, not a Cloud Build one.
 
 ## Deploy
 
+Locally with `deploy.sh`:
 ```
 PROJECT_ID=your-project REGION=us-central1 ./cloud-run/deploy.sh
 ```
 
-This builds the image, deploys both services, grants public unauthenticated access to both (`fake-store-api` because it's a public demo REST API like the upstream fakestoreapi.com; `fake-store-mcp` because Agent Studio's MCP connector only supports unauthenticated servers - see `docs/agent-studio-setup.md`), and prints both URLs at the end. Take the printed MCP URL, add `/mcp`, and use that as the Endpoint URL when connecting each specialist subagent's MCP tool in Agent Studio.
+Or via Cloud Build directly:
+```
+gcloud builds submit --config=cloudbuild.yaml --substitutions=_REGION=us-central1,_REPO=fake-store-api
+```
+
+Either way: it builds the image, deploys both services, grants public unauthenticated access to both (`fake-store-api` because it's a public demo REST API like the upstream fakestoreapi.com; `fake-store-mcp` because Agent Studio's MCP connector only supports unauthenticated servers - see `docs/agent-studio-setup.md`). `deploy.sh` prints both URLs at the end; with `cloudbuild.yaml`, get them afterward with `gcloud run services describe fake-store-mcp --region=<region> --format='value(status.url)'` (and likewise for `fake-store-api`). Take the MCP URL, add `/mcp`, and use that as the Endpoint URL when connecting each specialist subagent's MCP tool in Agent Studio.
 
 ## The Mongo caveat, concretely
 

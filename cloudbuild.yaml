@@ -1,0 +1,108 @@
+# Builds the app image once and deploys both Cloud Run services from it:
+#   - fake-store-api (cloud-run/service.yaml)     - main app + db + datadog-agent
+#   - fake-store-mcp (cloud-run/mcp-service.yaml)  - MCP server, for Agent Studio
+#
+# See docs/cloud-run-deploy.md for the full explanation. This file does the
+# same thing as cloud-run/deploy.sh, but as a Cloud Build config - run it
+# manually today, or point a Cloud Build trigger at it later for
+# redeploy-on-push (see docs/cloud-run-deploy.md for why the trigger's
+# default single-container auto-deploy flow doesn't work for this repo and
+# needs to be pointed at this file instead).
+#
+# Prerequisites (not handled by this file - see docs/cloud-run-deploy.md):
+#   - APIs enabled: run, artifactregistry, secretmanager, cloudbuild
+#   - Artifact Registry repo "${_REPO}" in region "${_REGION}"
+#   - Secrets: jwt-secret, db-password, database-url, dd-api-key,
+#     anthropic-api-key (each service's own runtime service account needs
+#     roles/secretmanager.secretAccessor on the ones it references - that's
+#     a Cloud Run runtime concern, not something Cloud Build needs)
+#   - The Cloud Build service account
+#     (PROJECT_NUMBER@cloudbuild.gserviceaccount.com) needs:
+#       roles/run.admin               (deploy the services, manage IAM on them)
+#       roles/iam.serviceAccountUser  (act as the Cloud Run services' runtime SA)
+#       roles/artifactregistry.writer (push the built image)
+#
+# Manual run:
+#   gcloud builds submit --config=cloudbuild.yaml \
+#     --substitutions=_REGION=us-central1,_REPO=fake-store-api
+
+substitutions:
+  _REGION: us-central1
+  _REPO: fake-store-api
+
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:latest
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:$SHORT_SHA
+      - .
+
+  - id: render-app-service
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        sed "s|REGION-docker.pkg.dev/PROJECT_ID/fake-store-api/app:latest|${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:latest|" \
+          cloud-run/service.yaml > /workspace/service.rendered.yaml
+
+  - id: render-mcp-service
+    name: gcr.io/cloud-builders/gcloud
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        sed "s|REGION-docker.pkg.dev/PROJECT_ID/fake-store-api/app:latest|${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:latest|" \
+          cloud-run/mcp-service.yaml > /workspace/mcp-service.rendered.yaml
+
+  - id: deploy-app
+    name: gcr.io/cloud-builders/gcloud
+    args:
+      - run
+      - services
+      - replace
+      - /workspace/service.rendered.yaml
+      - --region=${_REGION}
+    waitFor: [render-app-service]
+
+  - id: allow-unauthenticated-app
+    name: gcr.io/cloud-builders/gcloud
+    args:
+      - run
+      - services
+      - add-iam-policy-binding
+      - fake-store-api
+      - --region=${_REGION}
+      - --member=allUsers
+      - --role=roles/run.invoker
+    waitFor: [deploy-app]
+
+  - id: deploy-mcp
+    name: gcr.io/cloud-builders/gcloud
+    args:
+      - run
+      - services
+      - replace
+      - /workspace/mcp-service.rendered.yaml
+      - --region=${_REGION}
+    waitFor: [render-mcp-service]
+
+  - id: allow-unauthenticated-mcp
+    name: gcr.io/cloud-builders/gcloud
+    args:
+      - run
+      - services
+      - add-iam-policy-binding
+      - fake-store-mcp
+      - --region=${_REGION}
+      - --member=allUsers
+      - --role=roles/run.invoker
+    waitFor: [deploy-mcp]
+
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:latest
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/app:$SHORT_SHA

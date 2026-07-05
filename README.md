@@ -314,7 +314,7 @@ POST:
 - Chat API (Claude-backed, tool-use over this store's data): [`docs/chat-api.md`](docs/chat-api.md)
 - Multi-agent support demo in Agent Studio: [`docs/agent-studio-setup.md`](docs/agent-studio-setup.md)
 - Standalone MCP server (stdio for local clients, Streamable HTTP for remote ones like Agent Studio): `mcp/server.js` / `mcp/http-server.js`, both documented in `docs/chat-api.md`
-- Deploying both to Cloud Run (two services from one image, plus why not to use a Cloud Build repo trigger for this yet): [`docs/cloud-run-deploy.md`](docs/cloud-run-deploy.md), run via `cloud-run/deploy.sh`
+- Deploying both to Cloud Run (two services from one image, plus why not to use the console's one-click Cloud Build repo trigger for this): [`docs/cloud-run-deploy.md`](docs/cloud-run-deploy.md), run via `cloud-run/deploy.sh` or `gcloud builds submit --config=cloudbuild.yaml`
 
 ## ToDo
 
@@ -322,7 +322,7 @@ POST:
   their own separate Mongo sidecars onto one shared, externally-reachable
   Mongo, so the Agent Studio demo and the chat endpoint see consistent data
   (see the Mongo caveat in [`docs/cloud-run-deploy.md`](docs/cloud-run-deploy.md))
-- Set up a Cloud Build trigger with a custom `cloudbuild.yaml` for
+- Point a Cloud Build trigger at the existing `cloudbuild.yaml` for
   automatic redeploy-on-push, once the demo is stable enough to want that
   (see [`docs/cloud-run-deploy.md`](docs/cloud-run-deploy.md))
 - Wire up `dd-trace` APM instrumentation now that the Datadog Agent sidecar
