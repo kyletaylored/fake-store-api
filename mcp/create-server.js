@@ -34,8 +34,11 @@ function createMcpServer() {
 	server.registerTool(
 		'list_carts',
 		{
-			description: 'List shopping carts',
-			inputSchema: { limit: z.number().optional().describe('Max number of carts to return (0 = no limit)') },
+			description: 'List shopping carts, optionally filtered to a single user',
+			inputSchema: {
+				limit: z.number().optional().describe('Max number of carts to return (0 = no limit)'),
+				userId: z.number().optional().describe('Filter to carts belonging to this user id'),
+			},
 		},
 		async (args) => textResult(await tools.listCarts(args))
 	);
@@ -61,8 +64,14 @@ function createMcpServer() {
 	server.registerTool(
 		'get_user',
 		{
-			description: 'Get a single user by numeric id (password is never included)',
-			inputSchema: { id: z.number().describe('User id') },
+			description:
+				'Get a single user by numeric id, username, or email (password is never included). ' +
+				'Provide exactly one of id/username/email - a chat user will typically only know their username or email.',
+			inputSchema: {
+				id: z.number().optional().describe('User id'),
+				username: z.string().optional().describe('Username'),
+				email: z.string().optional().describe('Email address'),
+			},
 		},
 		async (args) => textResult(await tools.getUser(args))
 	);

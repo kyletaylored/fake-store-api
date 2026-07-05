@@ -11,8 +11,9 @@ async function getProduct({ id }) {
 	return Product.findOne({ id }).select(['-_id']);
 }
 
-async function listCarts({ limit = 0 } = {}) {
-	return Cart.find().select(['-_id']).limit(limit);
+async function listCarts({ limit = 0, userId } = {}) {
+	const query = userId !== undefined ? Cart.find({ userId }) : Cart.find();
+	return query.select(['-_id']).limit(limit);
 }
 
 async function getCart({ id }) {
@@ -23,8 +24,9 @@ async function listUsers({ limit = 0 } = {}) {
 	return User.find().select(['-_id', '-password']).limit(limit);
 }
 
-async function getUser({ id }) {
-	return User.findOne({ id }).select(['-_id', '-password']);
+async function getUser({ id, username, email }) {
+	const query = id !== undefined ? { id } : username !== undefined ? { username } : { email };
+	return User.findOne(query).select(['-_id', '-password']);
 }
 
 module.exports = {

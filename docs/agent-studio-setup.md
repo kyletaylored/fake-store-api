@@ -18,6 +18,18 @@ curl -s -X POST http://<host>/mcp \
 
 Should return all six tools: `list_products`, `get_product`, `list_carts`, `get_cart`, `list_users`, `get_user`.
 
+## User identity: self-reported, not authenticated
+
+`/chat` is intentionally public with no auth (see `docs/chat-api.md`), and Agent Studio's `user_id` on a session is just a session-scoping key - it's never visible to the model's own reasoning, so it can't be used to auto-fill `get_user`/`get_cart` arguments. The only way a subagent knows *which* customer it's talking to is if the customer says so in the conversation, e.g. "I'm alice" or "my email is alice@example.com".
+
+To make that work end-to-end:
+
+- `get_user` accepts `id`, `username`, **or** `email` - a real customer won't know their internal numeric id, so the Account subagent needs to ask for username/email, not id.
+- `list_carts` accepts an optional `userId` filter, so once a subagent has resolved a user (via `get_user`), it can look up "their" cart(s) directly instead of listing every cart in the store and guessing which one matches.
+- The Orders & Billing and Account instructions below ask for username/email (not id) and chain `get_user` → `list_carts(userId=...)` accordingly.
+
+This is fine for a fake-data demo, but note the honesty limit: nothing verifies the customer actually *is* who they claim - anyone can type "I'm bob" and the agent will happily hand back bob's cart. If this pattern is ever pointed at real data, that self-reported step needs to be replaced with real authentication (e.g. requiring `/chat` callers to be logged in and passing a verified identity into the prompt server-side) rather than trusting whatever the model is told mid-conversation.
+
 ## Important caveat: tool scoping is prompt-level, not a hard boundary
 
 Agent Studio attaches an MCP server as a whole - "your agent can use all tools in your connected MCP server." There's no connector-level way to give the Products subagent only `list_products`/`get_product` while hiding cart/user tools from it. The scoping below (each subagent only _using_ its relevant tools) is enforced by instructions, not by permissions. Fine for a demo; not a substitute for real access control if this pattern is ever used with non-fake data.
@@ -75,7 +87,11 @@ You answer questions about the store's product catalog only. Use the list_produc
 **Instructions:**
 
 ```
-You answer questions about shopping carts (orders) only, using the list_carts and get_cart tools. Only report what a tool call actually returned - never invent cart contents, quantities, or totals. If the customer doesn't give a cart/order id, ask for one. If asked about products in general (not tied to a specific cart) or account details, say that's outside what you handle.
+You answer questions about shopping carts (orders) only, using the list_carts and get_cart tools. Only report what a tool call actually returned - never invent cart contents, quantities, or totals.
+
+If the customer gives a specific cart/order id, use get_cart directly. If they're asking about "my cart"/"my order" without an id, ask for their username or email, call get_user with it to resolve their numeric id, then call list_carts with that userId to find their cart(s) - never ask the customer for their internal numeric user id, they won't know it.
+
+If asked about products in general (not tied to a specific cart) or account details, say that's outside what you handle.
 ```
 
 ## Agent 4: Account
@@ -91,7 +107,9 @@ You answer questions about shopping carts (orders) only, using the list_carts an
 **Instructions:**
 
 ```
-You answer questions about user accounts only, using the list_users and get_user tools. These tools never return a password field - if asked for one, say account credentials aren't something you can share, don't speculate. Only report what a tool call actually returned. If the customer doesn't give a user id, ask for one. If asked about products or carts, say that's outside what you handle.
+You answer questions about user accounts only, using the list_users and get_user tools. These tools never return a password field - if asked for one, say account credentials aren't something you can share, don't speculate. Only report what a tool call actually returned.
+
+To look up "my account"/"my details", ask the customer for their username or email (not a user id - customers don't know their internal numeric id) and call get_user with whichever they gave. If asked about products or carts, say that's outside what you handle.
 ```
 
 ## Step-by-step console walkthrough
@@ -142,6 +160,7 @@ Do this **on each of the three specialist subagents individually** - not on the 
    - `"What products do you have under $20?"` → should route to Products, and the answer should reflect real catalog data (or say there's no data, if the store is empty - see the note on seed data below).
    - `"What's in cart 3?"` → should route to Orders & Billing and call `get_cart`.
    - `"What's user 2's email?"` → should route to Account and call `get_user`.
+   - `"What's in my cart? My username is janedoe"` → should route to Orders & Billing, call `get_user(username="janedoe")` then `list_carts(userId=...)` - confirms the self-reported-identity chain works, not just id-based lookups.
    - `"What's your return policy?"` → nothing in scope should answer this; confirm the coordinator says it doesn't have that information rather than guessing.
 3. If a subagent answers confidently without calling a tool, check its instructions pasted correctly - that's the "never invent data" line doing its job when it's working.
 
