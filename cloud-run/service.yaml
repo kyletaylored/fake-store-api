@@ -10,25 +10,19 @@
 #   instance restarts, revisions, or scale-to-zero. Acceptable here because
 #   this is a fake-data demo API — for anything real, use MongoDB Atlas or a
 #   separately hosted Mongo instance instead of this sidecar.
-# - Secrets are pulled from Secret Manager via secretKeyRef instead of plain
-#   env vars, since this file is committed to the repo.
+# - Env vars below are plain values, not Secret Manager references - fine for
+#   a demo. Fill in the empty ANTHROPIC_API_KEY/DD_API_KEY values with real
+#   ones (edit this file, or `gcloud run services update fake-store-api
+#   --update-env-vars=ANTHROPIC_API_KEY=...,DD_API_KEY=...` after deploying).
+# - DATABASE_URL is a single fully-composed literal, not built from separate
+#   DB_USERNAME/DB_PASSWORD/DB_HOST parts: Cloud Run env vars are NOT
+#   shell-expanded, unlike docker-compose's env_file loading. A DATABASE_URL
+#   containing literal `$DB_USERNAME` etc. (e.g. pasted straight from
+#   .env/.env.example) will NOT be expanded here and will fail to connect.
 #
 # Deploy with:
 #   gcloud run services replace cloud-run/service.yaml --region <region>
-#
-# Prerequisites:
-#   gcloud secrets create jwt-secret --data-file=- <<< "<value>"
-#   gcloud secrets create db-password --data-file=- <<< "<value>"
-#   gcloud secrets create database-url --data-file=- <<< "mongodb://root:<db-password>@localhost:27017/fake_store?authSource=admin"
-#   gcloud secrets create dd-api-key --data-file=- <<< "<value>"
-#   gcloud secrets create anthropic-api-key --data-file=- <<< "<value>"
-#
-# Note: Cloud Run (Knative) does not reliably support one container env var
-# referencing another's value (e.g. embedding a secret-sourced DB_PASSWORD
-# inside a DATABASE_URL literal), so the full Mongo connection string is
-# stored as its own secret (`database-url`) rather than composed from parts.
-#   Build & push the app image to Artifact Registry, then replace the
-#   REGION-docker.pkg.dev/PROJECT/REPO/fake-store-api placeholder below.
+# or cloud-run/deploy.sh / cloudbuild.yaml, which also build the image first.
 
 apiVersion: serving.knative.dev/v1
 kind: Service
@@ -51,27 +45,18 @@ spec:
           env:
             - name: PORT
               value: "8765"
+            - name: DATABASE_URL
+              value: mongodb://root:example@localhost:27017/fake_store?authSource=admin
+            - name: JWT_SECRET
+              value: change_me_dev_only
             - name: DD_AGENT_HOST
               value: localhost
             - name: DD_TRACE_AGENT_PORT
               value: "8126"
             - name: CLAUDE_MODEL
               value: claude-haiku-4-5
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: database-url
-                  key: latest
-            - name: JWT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: jwt-secret
-                  key: latest
             - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: anthropic-api-key
-                  key: latest
+              value: ""
           resources:
             limits:
               cpu: "1"
@@ -83,10 +68,7 @@ spec:
             - name: MONGO_INITDB_ROOT_USERNAME
               value: root
             - name: MONGO_INITDB_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: db-password
-                  key: latest
+              value: example
           volumeMounts:
             - name: mongo-data
               mountPath: /data/db
@@ -115,10 +97,7 @@ spec:
             # container-level metrics collection is not available here —
             # this sidecar is scoped to APM trace collection from the app.
             - name: DD_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: dd-api-key
-                  key: latest
+              value: ""
           resources:
             limits:
               cpu: "0.5"

@@ -14,6 +14,8 @@
 # - Reuses the exact same container image as the main app (same Dockerfile,
 #   same package.json/deps) - just overrides the container's command to run
 #   the MCP HTTP server instead of the Express API.
+# - DATABASE_URL is a single fully-composed literal (see the note in
+#   service.yaml) - Cloud Run env vars are not shell-expanded.
 #
 # Mongo caveat (see docs/cloud-run-deploy.md and docs/agent-studio-setup.md
 # for the full explanation): this service gets its OWN db sidecar, separate
@@ -24,8 +26,8 @@
 #
 # Deploy with:
 #   gcloud run services replace cloud-run/mcp-service.yaml --region <region>
-# Or use cloud-run/deploy.sh, which builds the image and deploys both
-# services in one go.
+# Or use cloud-run/deploy.sh / cloudbuild.yaml, which build the image and
+# deploy both services in one go.
 
 apiVersion: serving.knative.dev/v1
 kind: Service
@@ -49,10 +51,7 @@ spec:
             - name: MCP_PORT
               value: "3333"
             - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: database-url
-                  key: latest
+              value: mongodb://root:example@localhost:27017/fake_store?authSource=admin
           resources:
             limits:
               cpu: "1"
@@ -64,10 +63,7 @@ spec:
             - name: MONGO_INITDB_ROOT_USERNAME
               value: root
             - name: MONGO_INITDB_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: db-password
-                  key: latest
+              value: example
           volumeMounts:
             - name: mongo-data
               mountPath: /data/db

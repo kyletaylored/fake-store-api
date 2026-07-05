@@ -6,39 +6,34 @@
 # See docs/cloud-run-deploy.md for the full explanation and prerequisites.
 #
 # Usage:
-#   PROJECT_ID=my-project REGION=us-central1 ./cloud-run/deploy.sh
+#   PROJECT_ID=my-project REGION=us-west1 ./cloud-run/deploy.sh
+#
+# ANTHROPIC_API_KEY and DD_API_KEY are left blank in cloud-run/service.yaml
+# and cloud-run/mcp-service.yaml (plain env vars, not Secret Manager - fine
+# for this demo). Fill in real values either by editing those files before
+# running this script, or afterward with:
+#   gcloud run services update fake-store-api --region "$REGION" \
+#     --update-env-vars=ANTHROPIC_API_KEY=...
+#   gcloud run services update fake-store-api --region "$REGION" \
+#     --update-env-vars=DD_API_KEY=...
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 : "${PROJECT_ID:?Set PROJECT_ID, e.g. PROJECT_ID=my-project ./cloud-run/deploy.sh}"
-: "${REGION:=us-central1}"
+: "${REGION:=us-west1}"
 
 REPO=fake-store-api
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/app:latest"
 
 echo "==> Enabling required APIs"
 gcloud services enable run.googleapis.com artifactregistry.googleapis.com \
-  secretmanager.googleapis.com cloudbuild.googleapis.com --project "$PROJECT_ID"
+  cloudbuild.googleapis.com --project "$PROJECT_ID"
 
 echo "==> Ensuring Artifact Registry repo exists"
 if ! gcloud artifacts repositories describe "$REPO" --location="$REGION" --project "$PROJECT_ID" >/dev/null 2>&1; then
   gcloud artifacts repositories create "$REPO" --repository-format=docker \
     --location="$REGION" --project "$PROJECT_ID"
-fi
-
-echo "==> Checking required secrets exist"
-MISSING=0
-for secret in jwt-secret db-password database-url dd-api-key anthropic-api-key; do
-  if ! gcloud secrets describe "$secret" --project "$PROJECT_ID" >/dev/null 2>&1; then
-    echo "  Missing secret: $secret"
-    echo "    gcloud secrets create $secret --project $PROJECT_ID --data-file=- <<< \"<value>\""
-    MISSING=1
-  fi
-done
-if [ "$MISSING" = "1" ]; then
-  echo "==> Create the missing secrets above, then re-run this script."
-  exit 1
 fi
 
 echo "==> Building and pushing the image ($IMAGE)"
