@@ -61,6 +61,8 @@ spec:
               value: localhost
             - name: DD_TRACE_AGENT_PORT
               value: "8126"
+            - name: DD_SERVICE
+              value: fake-store-api
             # Fill in with your own deployed Agent Studio agent's resource
             # name (projects/<PROJECT_NUMBER>/locations/<REGION>/reasoningEngines/<ID>)
             # - never commit a real one.

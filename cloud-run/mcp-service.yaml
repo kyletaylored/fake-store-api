@@ -24,6 +24,11 @@
 # you seed both, or move both services onto one shared, externally-reachable
 # Mongo (e.g. MongoDB Atlas).
 #
+# Also gets its own datadog-agent sidecar (same as service.yaml) so the MCP
+# server's dd-trace spans (@modelcontextprotocol/sdk, mongoose, ...) have
+# somewhere to go - Cloud Run sidecars are only reachable via localhost
+# within the same revision, so this can't share the main app's agent.
+#
 # Deploy with:
 #   gcloud run services replace cloud-run/mcp-service.yaml --region <region>
 # Or use cloud-run/deploy.sh / cloudbuild.yaml, which build the image and
@@ -39,7 +44,7 @@ spec:
   template:
     metadata:
       annotations:
-        run.googleapis.com/container-dependencies: '{"mcp":["db"]}'
+        run.googleapis.com/container-dependencies: '{"mcp":["db","datadog-agent"]}'
     spec:
       containers:
         - name: mcp
@@ -52,6 +57,12 @@ spec:
               value: "3333"
             - name: DATABASE_URL
               value: mongodb://root:example@localhost:27017/fake_store?authSource=admin
+            - name: DD_AGENT_HOST
+              value: localhost
+            - name: DD_TRACE_AGENT_PORT
+              value: "8126"
+            - name: DD_SERVICE
+              value: fake-store-mcp
           resources:
             limits:
               cpu: "1"
@@ -74,6 +85,35 @@ spec:
           startupProbe:
             tcpSocket:
               port: 27017
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 15
+
+        - name: datadog-agent
+          image: gcr.io/datadoghq/agent:latest
+          env:
+            - name: DD_SITE
+              value: datadoghq.com
+            # See the same note in service.yaml - Cloud Run containers have
+            # no conventional resolvable hostname without this.
+            - name: DD_HOSTNAME
+              value: fake-store-mcp-cloud-run
+            - name: DD_APM_ENABLED
+              value: "true"
+            - name: DD_APM_NON_LOCAL_TRAFFIC
+              value: "true"
+            # Fill in a real value - see the DD_API_KEY note in service.yaml
+            # for why this can't be left empty (mcp depends on this
+            # container being ready).
+            - name: DD_API_KEY
+              value: REPLACE_ME
+          resources:
+            limits:
+              cpu: "0.5"
+              memory: 256Mi
+          startupProbe:
+            tcpSocket:
+              port: 8126
             periodSeconds: 2
             timeoutSeconds: 2
             failureThreshold: 15
