@@ -30,12 +30,22 @@ You asked specifically about connecting the repo through Cloud Build's GitHub tr
 
 ## Env vars, not Secret Manager
 
-Both manifests use plain literal `env:` values, not Secret Manager `secretKeyRef`s - a deliberate simplification for this demo. `ANTHROPIC_API_KEY` and `DD_API_KEY` are left blank in the committed YAML; fill in real values either by editing the files before deploying, or afterward:
+Both manifests use plain literal `env:` values, not Secret Manager `secretKeyRef`s - a deliberate simplification for this demo. `DD_API_KEY` is left blank in the committed YAML; fill in a real value either by editing the files before deploying, or afterward:
 ```
-gcloud run services update fake-store-api --region=us-west1 --update-env-vars=ANTHROPIC_API_KEY=...
 gcloud run services update fake-store-api --region=us-west1 --update-env-vars=DD_API_KEY=...
-gcloud run services update fake-store-mcp --region=us-west1 --update-env-vars=ANTHROPIC_API_KEY=...
+gcloud run services update fake-store-mcp --region=us-west1 --update-env-vars=DD_API_KEY=...
 ```
+
+## `/chat`'s backend: Vertex AI Agent Engine, ADC only
+
+`fake-store-api` (not `fake-store-mcp`) has an `AGENT_ENGINE_RESOURCE_NAME` env var pointing at the deployed Agent Engine resource built in Agent Studio (see `docs/agent-studio-setup.md` and `docs/chat-api.md`). There is no API key for this - authentication is Application Default Credentials only, via the service's attached runtime service account.
+
+That runtime service account needs `roles/aiplatform.user` (or equivalent) to call the Agent Engine resource. Find it with `gcloud run services describe fake-store-api --region=us-west1 --project=<your-project> --format='value(spec.template.spec.serviceAccountName)'` (usually the default compute service account unless you've set a custom one), then check/grant with:
+```
+gcloud projects add-iam-policy-binding <your-project> \
+  --member="serviceAccount:<runtime-sa>" --role="roles/aiplatform.user"
+```
+(In the project this was originally built and verified in, the default compute service account already had this role at the project level, so no grant was needed there - your project may differ.)
 
 **Important:** `DATABASE_URL` in both manifests is a single, fully-composed literal (`mongodb://root:example@localhost:27017/fake_store?authSource=admin`), not built from separate `DB_USERNAME`/`DB_PASSWORD`/`DB_HOST` parts like `.env` does. Cloud Run env vars are **not shell-expanded** - if you paste `.env`'s `DATABASE_URL` (which contains literal `$DB_USERNAME` etc., meant to be expanded by `dotenv-expand` or docker-compose's `env_file` loading) directly into a Cloud Run env var, it stays literal and Mongo will fail to resolve a host named `$DB_HOST`. See the postmortem below - this is exactly what happened on the first manual attempt.
 

@@ -1,6 +1,6 @@
 # Chat API
 
-A minimal conversation API backed by Claude (`@anthropic-ai/sdk`), with tool access to the store's product/cart/user data via `mcp/tools.js`. Intended for a future frontend to build a chat UI against.
+A minimal conversation API backed by a Gemini-based multi-agent system deployed as a Vertex AI Agent Engine resource (built via Google's Agent Studio console - see `docs/agent-studio-setup.md`). That deployed agent gets its store data by calling the MCP server (`mcp/http-server.js`) directly - this Node process no longer runs any tool-use loop itself.
 
 Base path: `/chat`
 
@@ -50,7 +50,7 @@ Fetch a conversation's full message history.
 
 ### `POST /chat/conversations/:id/messages`
 
-Send a user message and get the assistant's reply. The server runs Claude's tool-use loop internally (calling into the store's data via the same functions the MCP server exposes) until Claude produces a final text answer; only the final reply is returned and persisted.
+Send a user message and get the assistant's reply. The server forwards the message to the deployed Agent Engine resource (the "Support Coordinator" agent, which routes to the Products / Orders & Billing / Account subagents - see `docs/agent-studio-setup.md`) and returns its final text reply. The public request/response shape is unchanged from the previous Claude-based implementation.
 
 **Request body**
 ```json
@@ -67,11 +67,11 @@ Send a user message and get the assistant's reply. The server runs Claude's tool
 |---|---|---|
 | `400` | `{ "status": "error", "message": "message is required" }` | missing/empty `message` field |
 | `404` | `{ "status": "error", "message": "conversation not found" }` | unknown `:id` |
-| `502` | `{ "status": "error", "message": "chat backend error" }` | Claude API call failed |
+| `502` | `{ "status": "error", "message": "chat backend error" }` | Agent Engine call failed (auth, network, or the agent itself returned an error - e.g. a misconfigured tool) |
 
 ## What the assistant can answer
 
-The assistant can only answer using data returned by these tools (also exposed as a standalone MCP server — see below):
+The deployed agent answers using the same six store tools, but it calls them itself over MCP (`mcp/http-server.js`) - this Node process has no tool-calling code anymore:
 
 | Tool | Description |
 |---|---|
@@ -82,11 +82,20 @@ The assistant can only answer using data returned by these tools (also exposed a
 | `list_users` | List users (passwords never included), with an optional `limit` |
 | `get_user` | Get one user by numeric `id` (password never included) |
 
-It is instructed to answer only from tool results, not to invent product/user/cart data.
+## Backend: Vertex AI Agent Engine
 
-## Model
+Configured via `AGENT_ENGINE_RESOURCE_NAME`, shaped like:
+```
+AGENT_ENGINE_RESOURCE_NAME=projects/<PROJECT_NUMBER>/locations/<REGION>/reasoningEngines/<REASONING_ENGINE_ID>
+```
+(get the real value from your own deployed Agent Studio agent - never commit one)
 
-Configured via `CLAUDE_MODEL` (default `claude-haiku-4-5`). Requires `ANTHROPIC_API_KEY` to be set.
+`lib/agent-engine.js` is a thin REST client (there is no Node client library for *querying* an already-deployed Agent Engine - `@google/adk` on npm is for authoring/deploying agents, not for calling one that's already live). It authenticates via Application Default Credentials (`google-auth-library`'s `GoogleAuth` - no API key, ever) and makes two kinds of calls against `https://{location}-aiplatform.googleapis.com/v1/{resource}`:
+
+- **Session creation** (once per conversation, lazily on its first message, then reused): `POST {resource}/sessions` with body `{"userId": "conversation-<our conversation id>"}`. The returned session id is stored on the conversation document (`agentSessionId`, not exposed via the API) so the *deployed agent* remembers earlier turns of this conversation - separate from the transcript this app persists in Mongo.
+- **Sending a message**: `POST {resource}:streamQuery?alt=sse` with body `{"class_method": "async_stream_query", "input": {"user_id": "...", "session_id": "...", "message": "..."}}`. Despite `alt=sse`, the response body is newline-delimited JSON, not real SSE - one JSON object per line. Each line may carry `content.parts[]` (text and/or tool-call/tool-result parts with no `text` field) or an error object. The final reply is every `parts[].text` field concatenated in order across all lines - function-call/response parts are skipped automatically since they have no `text` field.
+
+Locally, ADC comes from `gcloud auth application-default login` (or `GOOGLE_APPLICATION_CREDENTIALS` pointed at a suitable credential file). On Cloud Run, ADC comes from the service's attached runtime service account, which needs `roles/aiplatform.user` (or equivalent) on the project/resource - see `docs/cloud-run-deploy.md`.
 
 ## Standalone MCP server
 

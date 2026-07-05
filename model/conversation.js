@@ -6,6 +6,12 @@ const conversationSchema = new schema({
 		type: Number,
 		required: true,
 	},
+	// Session id on the deployed Vertex AI Agent Engine resource - lets that
+	// agent remember earlier turns of this same conversation. Not exposed via
+	// the /chat API (GET /chat/conversations/:id excludes it below).
+	agentSessionId: {
+		type: String,
+	},
 	messages: [
 		{
 			role: {

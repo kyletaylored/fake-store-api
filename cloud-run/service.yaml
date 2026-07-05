@@ -11,14 +11,19 @@
 #   this is a fake-data demo API — for anything real, use MongoDB Atlas or a
 #   separately hosted Mongo instance instead of this sidecar.
 # - Env vars below are plain values, not Secret Manager references - fine for
-#   a demo. Fill in ANTHROPIC_API_KEY and DD_API_KEY with real values (edit
-#   this file, or `gcloud run services update fake-store-api
-#   --update-env-vars=ANTHROPIC_API_KEY=...,DD_API_KEY=...` after deploying).
-#   DD_API_KEY can't be left empty like ANTHROPIC_API_KEY - the Datadog Agent
+#   a demo. Fill in DD_API_KEY with a real value (edit this file, or
+#   `gcloud run services update fake-store-api --update-env-vars=DD_API_KEY=...`
+#   after deploying). DD_API_KEY can't be left empty - the Datadog Agent
 #   image's own startup script hard-exits if it's unset/empty, which - since
 #   datadog-agent is a startup dependency for `app` - blocks the whole
 #   revision from ever becoming ready. REPLACE_ME unblocks deploys but sends
 #   no real telemetry until swapped for a real key.
+# - /chat talks to a Vertex AI Agent Engine resource (AGENT_ENGINE_RESOURCE_NAME
+#   below) via Application Default Credentials - no API key. On Cloud Run,
+#   ADC comes from the service's attached runtime service account, which needs
+#   roles/aiplatform.user (or equivalent) on that Agent Engine resource. See
+#   docs/cloud-run-deploy.md for the exact grant command and whether it's been
+#   applied yet.
 # - DATABASE_URL is a single fully-composed literal, not built from separate
 #   DB_USERNAME/DB_PASSWORD/DB_HOST parts: Cloud Run env vars are NOT
 #   shell-expanded, unlike docker-compose's env_file loading. A DATABASE_URL
@@ -56,9 +61,10 @@ spec:
               value: localhost
             - name: DD_TRACE_AGENT_PORT
               value: "8126"
-            - name: CLAUDE_MODEL
-              value: claude-haiku-4-5
-            - name: ANTHROPIC_API_KEY
+            # Fill in with your own deployed Agent Studio agent's resource
+            # name (projects/<PROJECT_NUMBER>/locations/<REGION>/reasoningEngines/<ID>)
+            # - never commit a real one.
+            - name: AGENT_ENGINE_RESOURCE_NAME
               value: ""
           resources:
             limits:
