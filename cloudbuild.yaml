@@ -26,17 +26,19 @@ steps:
   - name: gcr.io/cloud-builders/docker
     env:
       - IMAGE=${_IMAGE}
+      - BUILD_ID=$BUILD_ID
     script: |
-      docker build -t ${IMAGE}:latest -t ${IMAGE}:$SHORT_SHA .
+      docker build -t ${IMAGE}:latest -t ${IMAGE}:${BUILD_ID} .
     id: BUILD
     waitFor: ["-"]
 
   - name: gcr.io/cloud-builders/docker
     env:
       - IMAGE=${_IMAGE}
+      - BUILD_ID=$BUILD_ID
     script: |
       docker push ${IMAGE}:latest
-      docker push ${IMAGE}:$SHORT_SHA
+      docker push ${IMAGE}:${BUILD_ID}
     id: PUSH
     waitFor:
       - BUILD
@@ -99,7 +101,7 @@ substitutions:
 
 images:
   - ${_IMAGE}:latest
-  - ${_IMAGE}:$SHORT_SHA
+  - ${_IMAGE}:$BUILD_ID
 
 options:
   dynamic_substitutions: true

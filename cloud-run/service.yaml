@@ -11,9 +11,14 @@
 #   this is a fake-data demo API — for anything real, use MongoDB Atlas or a
 #   separately hosted Mongo instance instead of this sidecar.
 # - Env vars below are plain values, not Secret Manager references - fine for
-#   a demo. Fill in the empty ANTHROPIC_API_KEY/DD_API_KEY values with real
-#   ones (edit this file, or `gcloud run services update fake-store-api
+#   a demo. Fill in ANTHROPIC_API_KEY and DD_API_KEY with real values (edit
+#   this file, or `gcloud run services update fake-store-api
 #   --update-env-vars=ANTHROPIC_API_KEY=...,DD_API_KEY=...` after deploying).
+#   DD_API_KEY can't be left empty like ANTHROPIC_API_KEY - the Datadog Agent
+#   image's own startup script hard-exits if it's unset/empty, which - since
+#   datadog-agent is a startup dependency for `app` - blocks the whole
+#   revision from ever becoming ready. REPLACE_ME unblocks deploys but sends
+#   no real telemetry until swapped for a real key.
 # - DATABASE_URL is a single fully-composed literal, not built from separate
 #   DB_USERNAME/DB_PASSWORD/DB_HOST parts: Cloud Run env vars are NOT
 #   shell-expanded, unlike docker-compose's env_file loading. A DATABASE_URL
@@ -43,8 +48,6 @@ spec:
           ports:
             - containerPort: 8765
           env:
-            - name: PORT
-              value: "8765"
             - name: DATABASE_URL
               value: mongodb://root:example@localhost:27017/fake_store?authSource=admin
             - name: JWT_SECRET
@@ -97,11 +100,17 @@ spec:
             # container-level metrics collection is not available here —
             # this sidecar is scoped to APM trace collection from the app.
             - name: DD_API_KEY
-              value: ""
+              value: REPLACE_ME
           resources:
             limits:
               cpu: "0.5"
               memory: 256Mi
+          startupProbe:
+            tcpSocket:
+              port: 8126
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 15
 
       volumes:
         - name: mongo-data
