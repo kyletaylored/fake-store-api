@@ -91,6 +91,12 @@ spec:
           env:
             - name: DD_SITE
               value: datadoghq.com
+            # Cloud Run containers have no conventional resolvable hostname -
+            # without this, the agent's hostname auto-detection fatally
+            # errors ("unable to reliably determine the host name"), which
+            # crash-loops the whole container and fails its startup probe.
+            - name: DD_HOSTNAME
+              value: fake-store-api-cloud-run
             - name: DD_APM_ENABLED
               value: "true"
             - name: DD_APM_NON_LOCAL_TRAFFIC

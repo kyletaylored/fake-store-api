@@ -46,10 +46,16 @@ steps:
   - name: ubuntu
     env:
       - IMAGE=${_IMAGE}
+      - BUILD_ID=$BUILD_ID
     script: |
-      sed "s|REGION-docker.pkg.dev/PROJECT_ID/fake-store-api/app:latest|${IMAGE}:latest|" \
+      # Deploy against the unique per-build tag, never the mutable :latest -
+      # Cloud Run's `services replace` skips creating a new revision when
+      # the submitted YAML text is unchanged, and "app:latest" is the same
+      # string on every run even though the tag moves to a new digest each
+      # time. A unique tag guarantees the spec text actually changes.
+      sed "s|REGION-docker.pkg.dev/PROJECT_ID/fake-store-api/app:latest|${IMAGE}:${BUILD_ID}|" \
         cloud-run/service.yaml > /workspace/service.rendered.yaml
-      sed "s|REGION-docker.pkg.dev/PROJECT_ID/fake-store-api/app:latest|${IMAGE}:latest|" \
+      sed "s|REGION-docker.pkg.dev/PROJECT_ID/fake-store-api/app:latest|${IMAGE}:${BUILD_ID}|" \
         cloud-run/mcp-service.yaml > /workspace/mcp-service.rendered.yaml
     id: RENDER_SERVICE_YAML
     waitFor: ["-"]

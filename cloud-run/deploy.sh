@@ -24,7 +24,12 @@ cd "$(dirname "$0")/.."
 : "${REGION:=us-west1}"
 
 REPO=fake-store-api
-IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/app:latest"
+# A unique tag per run, not :latest - Cloud Run's `services replace` skips
+# creating a new revision when the submitted YAML text is unchanged, and
+# "app:latest" is the same string every run even though the tag moves to a
+# new digest each time. Falls back to a timestamp outside a git checkout.
+TAG=$(git rev-parse --short HEAD 2>/dev/null || date +%s)
+IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/app:${TAG}"
 
 echo "==> Enabling required APIs"
 gcloud services enable run.googleapis.com artifactregistry.googleapis.com \
