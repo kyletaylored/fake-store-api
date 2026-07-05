@@ -1,0 +1,120 @@
+# Builds the app image and deploys both Cloud Run services from it
+# (fake-store-api, fake-store-mcp), mirroring what cloudbuild.yaml does on
+# the GCP side - see docs/cloud-run-deploy.md for the full comparison.
+#
+# DELIBERATELY INERT: trigger is workflow_dispatch only (manual "Run workflow"
+# button in the Actions tab), not `on: push`. This exists so you can compare
+# the GitHub Actions approach against cloudbuild.yaml side by side without it
+# firing on every push. To make it fire automatically, add e.g.:
+#   on:
+#     push:
+#       branches: [main]
+#
+# To configure this workflow before running it manually:
+#
+# 1. Enable these Google Cloud APIs (cloudbuild.yaml already needs run +
+#    artifactregistry; this workflow additionally needs iamcredentials for
+#    Workload Identity Federation):
+#    - Artifact Registry (artifactregistry.googleapis.com)
+#    - Cloud Run (run.googleapis.com)
+#    - IAM Credentials API (iamcredentials.googleapis.com)
+#
+# 2. TODO: Create a Workload Identity Provider for GitHub Actions and set
+#    WORKLOAD_IDENTITY_PROVIDER below - this is NOT set up yet.
+#    https://github.com/google-github-actions/auth#preferred-direct-workload-identity-federation
+#    The identity it federates to needs, at minimum:
+#      - roles/artifactregistry.writer (push the built image)
+#      - roles/run.admin              (deploy both services, manage IAM on them)
+#      - roles/iam.serviceAccountUser (act as the Cloud Run services' runtime SA)
+
+name: 'Build and Deploy to Cloud Run'
+
+on:
+  workflow_dispatch: {}
+
+env:
+  PROJECT_ID: 'your-gcp-project-id' # TODO: update to your Google Cloud project ID
+  REGION: 'us-west1'
+  REPO: 'fake-store-api'
+  WORKLOAD_IDENTITY_PROVIDER: '' # TODO: not configured yet - see step 2 above
+
+jobs:
+  deploy:
+    runs-on: 'ubuntu-latest'
+
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: 'Checkout'
+        uses: 'actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332' # actions/checkout@v4
+
+      # Configure Workload Identity Federation and generate an access token.
+      # See https://github.com/google-github-actions/auth for more options.
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@f112390a2df9932162083945e46d439060d66ec2' # google-github-actions/auth@v2
+        with:
+          workload_identity_provider: '${{ env.WORKLOAD_IDENTITY_PROVIDER }}'
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@6a7c903a70c8625ed6700fa299f5ddb4ca6022e9' # google-github-actions/setup-gcloud@v2
+
+      - name: 'Docker Auth'
+        uses: 'docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567' # docker/login-action@v3
+        with:
+          username: 'oauth2accesstoken'
+          password: '${{ steps.auth.outputs.auth_token }}'
+          registry: '${{ env.REGION }}-docker.pkg.dev'
+
+      - id: 'build'
+        name: 'Build and Push Container'
+        run: |-
+          IMAGE="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO }}/app:${{ github.sha }}"
+          docker build --tag "${IMAGE}" .
+          docker push "${IMAGE}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+
+      - name: 'Render service YAMLs with the built image'
+        run: |-
+          sed "s|REGION-docker.pkg.dev/PROJECT_ID/fake-store-api/app:latest|${{ steps.build.outputs.image }}|" \
+            cloud-run/service.yaml > /tmp/fake-store-api-service.yaml
+          sed "s|REGION-docker.pkg.dev/PROJECT_ID/fake-store-api/app:latest|${{ steps.build.outputs.image }}|" \
+            cloud-run/mcp-service.yaml > /tmp/fake-store-mcp-service.yaml
+
+      # The `metadata` input takes a full Knative service YAML, same as
+      # `gcloud run services replace` in cloudbuild.yaml - this is what makes
+      # multi-container sidecars (db, datadog-agent) work here at all; the
+      # simpler `service`/`image` flag-based inputs (like the original
+      # single-container template this file replaced) can't express that.
+      - id: 'deploy-app'
+        name: 'Deploy fake-store-api'
+        uses: 'google-github-actions/deploy-cloudrun@33553064113a37d688aa6937bacbdc481580be17' # google-github-actions/deploy-cloudrun@v2
+        with:
+          region: '${{ env.REGION }}'
+          metadata: '/tmp/fake-store-api-service.yaml'
+
+      - name: 'Allow unauthenticated access to fake-store-api'
+        run: |-
+          gcloud run services add-iam-policy-binding fake-store-api \
+            --project "${{ env.PROJECT_ID }}" --region "${{ env.REGION }}" \
+            --member=allUsers --role=roles/run.invoker --quiet
+
+      - id: 'deploy-mcp'
+        name: 'Deploy fake-store-mcp'
+        uses: 'google-github-actions/deploy-cloudrun@33553064113a37d688aa6937bacbdc481580be17' # google-github-actions/deploy-cloudrun@v2
+        with:
+          region: '${{ env.REGION }}'
+          metadata: '/tmp/fake-store-mcp-service.yaml'
+
+      - name: 'Allow unauthenticated access to fake-store-mcp'
+        run: |-
+          gcloud run services add-iam-policy-binding fake-store-mcp \
+            --project "${{ env.PROJECT_ID }}" --region "${{ env.REGION }}" \
+            --member=allUsers --role=roles/run.invoker --quiet
+
+      - name: 'Show output'
+        run: |-
+          echo "App: ${{ steps.deploy-app.outputs.url }}"
+          echo "MCP: ${{ steps.deploy-mcp.outputs.url }}"

@@ -13,7 +13,11 @@ It's a Knative-style declarative manifest - the Cloud Run equivalent of `docker-
 
 **Region: `us-west1`** - that's where the Agent Studio agents are deployed, so both services below deploy there too rather than the `us-central1` used in earlier drafts of this doc.
 
-## Two ways to run the same deploy
+## A third option: GitHub Actions (currently inert, for comparison)
+
+[`.github/workflows/google-cloudrun-docker.yml`](../.github/workflows/google-cloudrun-docker.yml) does the same build-and-deploy as `cloudbuild.yaml`, using `google-github-actions/deploy-cloudrun`'s `metadata` input (which takes a full Knative YAML, same idea as `gcloud run services replace` - the plain `service`/`image` flag inputs can't express multi-container sidecars). It's deliberately **not wired to run on push** - the only trigger is `workflow_dispatch` (the manual "Run workflow" button in the Actions tab) - so you can compare it against `cloudbuild.yaml` side by side without it firing automatically. It also isn't runnable yet either way: `WORKLOAD_IDENTITY_PROVIDER` is left blank as a TODO, since setting up Workload Identity Federation for GitHub Actions is a separate GCP-side IAM setup step (see the comments at the top of the file) that hasn't been done. If you find configuring the Cloud Build trigger in the console more complicated than GitHub Actions, this is the path to finish setting up instead - the workflow itself is ready, it just needs that one piece of auth wiring.
+
+## Two ways to run the same deploy right now
 
 Both do the same thing (build the image once, apply both service YAMLs, grant public access to both) - pick based on where you'd rather run it:
 

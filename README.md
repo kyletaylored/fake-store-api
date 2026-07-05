@@ -323,7 +323,9 @@ POST:
   Mongo, so the Agent Studio demo and the chat endpoint see consistent data
   (see the Mongo caveat in [`docs/cloud-run-deploy.md`](docs/cloud-run-deploy.md))
 - Point a Cloud Build trigger at the existing `cloudbuild.yaml` for
-  automatic redeploy-on-push, once the demo is stable enough to want that
+  automatic redeploy-on-push, once the demo is stable enough to want that -
+  or finish wiring up `.github/workflows/google-cloudrun-docker.yml`
+  (Workload Identity Federation TODO) as the GitHub Actions alternative
   (see [`docs/cloud-run-deploy.md`](docs/cloud-run-deploy.md))
 - Wire up `dd-trace` APM instrumentation now that the Datadog Agent sidecar
   is reachable (`DD_AGENT_HOST`/`DD_TRACE_AGENT_PORT` are already set)
